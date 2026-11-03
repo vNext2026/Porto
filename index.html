@@ -435,6 +435,7 @@ body.ro input:disabled,body.ro select:disabled,body.ro textarea:disabled{opacity
     <div class="fld2"><span>사진 크기 (이 폰 · 새로 넣는 사진부터)</span><div class="who" id="pxSel" style="margin:0"><button data-p="1280">1280px (기본)</button><button data-p="1600">1600px</button></div></div>
     <div class="fld2"><span>이 폰 사용 방식</span><div class="who" id="roSel" style="margin:0"><button data-r="0">기록</button><button data-r="1">조회 전용</button></div></div>
     <div class="acts"><button class="primary" id="ghSave">저장 · 연결 시험</button></div>
+    <div class="acts hide rohide" id="camTokBox"><button id="camTok">카미노 앱의 토큰 이어 쓰기</button></div>
     <div class="acts"><button id="ghSync">지금 동기화</button><button id="ghRestore">GitHub에서 복원</button></div>
     <p class="hint">「저장」을 누를 때마다 GitHub 비공개 저장소에 자동으로 올라갑니다. 통신이 끊기면 모아 두었다가 연결되면 보냅니다. 두 사람 기록 모두 양쪽 폰에서 보고 고칠 수 있습니다.</p>
   </div></section>
@@ -528,7 +529,7 @@ function validDay(d){return /^\d{4}-\d{2}-\d{2}$/.test(d||"")&&d>=DAY0}
 var IT=[];
 /* 날짜 행: [날짜, "N일째", (빈 칸 — 옛 구간 자리)…] */
 function rebuildIT(){IT=DAYS.map(function(ds,i){return [ds,(i+1)+"일째","","",0,"—","",null]})}
-var APPVER="1.1.0", APPDATE="2026-11-03";
+var APPVER="1.2.0", APPDATE="2026-11-03";
 var OWN={p1:"Damiano",p2:"Dominica"}, me=null, owner="p1", formBase="null";
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
 function lsSet(k,v){try{localStorage.setItem(k,v);return true}catch(e){return false}}
@@ -1772,7 +1773,7 @@ function paintSettings(){
   "\n마지막 성공: "+(SY.last?new Date(SY.last).toLocaleString("ko-KR"):"없음")+
   "\n미전송 기록: "+outbox().length+"건 · GitHub의 사진·영상: "+nm+"개"+(sk?" · 올리지 않은 큰 영상 "+sk+"개":"")+
   "\n저장소 보존 요청: "+PERSIST+" · 오프라인 실행: "+SWST;
- $("#appst").textContent="현재 앱 v"+APPVER+" ("+APPDATE+")"+(NEWVER?" · 새 버전 v"+NEWVER+" 있음":"");paintRoSel();paintCam();
+ $("#appst").textContent="현재 앱 v"+APPVER+" ("+APPDATE+")"+(NEWVER?" · 새 버전 v"+NEWVER+" 있음":"");paintRoSel();paintCam();paintCamTok();
 }
 $("#meSel").addEventListener("click",function(e){var b=e.target.closest("button[data-o]");if(!b||b.dataset.o===me)return;
  ui.confirm("이 폰의 주인을 「"+OWN[b.dataset.o]+"」(으)로 바꿀까요?\n기록은 옮겨지지 않고, 처음 열 때 보이는 기록만 바뀝니다.","바꾸기","그만두기")
@@ -2322,6 +2323,22 @@ $("#camImp").onclick=function(){
     (cf.length?"\n\n비어 있던 설정을 카미노 앱 값으로 채웠습니다: "+cf.join(" · "):"")+
     "\n\n시작 현금·트래블카드 잔고는 「기획」에서 확인하십시오. 카미노 앱의 기록은 그대로 남아 있습니다.");
   }).catch(function(e){b.disabled=false;b.textContent=LBL;ui.alert("가져오지 못했습니다.\n"+((e&&e.name)||""))});
+ })};
+
+
+/* ════════ v1.2 — 카미노 앱에 저장된 GitHub 토큰 이어 쓰기 ════════
+   같은 폰의 카미노 앱(camino:gh)에 있는 토큰을 읽어 이 앱 설정에 넣는다. 화면에 보이거나 복사되지 않는다.
+   GitHub에서 그 토큰의 저장소 목록에 Porto-data(·Porto)를 더해 두어야 연결된다. 카미노 저장소는 이 앱이 쓰지 않는다(badRepo). */
+function camTok(){var c=lsJ("camino:gh",null);return c&&typeof c.token==="string"&&c.token.trim()?c.token.trim():""}
+function paintCamTok(){var b=$("#camTokBox");if(!b)return;b.classList.toggle("hide",!(camTok()&&!ghCfg().token))}
+$("#camTok").onclick=function(){
+ if(RO)return;var t=camTok();if(!t){ui.alert("이 폰의 카미노 앱에 저장된 토큰이 없습니다.");return}
+ ui.confirm("카미노 앱에 저장된 GitHub 토큰을 이 앱에서도 씁니다.\n\n먼저 GitHub에서 그 토큰(이름 camino)의 저장소 목록에 Porto-data와 Porto를 더해 두어야 합니다.\n\n토큰은 화면에 나오지 않습니다. 카미노 앱 설정은 그대로입니다.","이어 쓰기","그만두기").then(function(ok){
+  if(!ok)return;
+  $("#ghTok").value=t;
+  if(!$("#ghRepo").value.trim())$("#ghRepo").value="vNext2026/Porto-data";
+  if(!$("#appRepo").value.trim())$("#appRepo").value="vNext2026/Porto";
+  $("#ghSave").onclick();
  })};
 
 /* ── 저장소 보존 · 오프라인 실행 ── */

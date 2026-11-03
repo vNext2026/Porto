@@ -1,11 +1,12 @@
-// 포르투판 시험 장치 (v1.1.0 기준) · 모든 자료는 합성
-// 6) v1.1 카미노 기록 가져오기: 10/31 이후만 · 바이트 일치 · 매체 복사 · 덮어쓰기 없음 · 카미노 불변 · 매체 DB 새로 만들지 않음 — 설계서 4번
-// 사용: node tests/smoke-porto.js porto/index.html [porto백업.json]
+// 포르투판 시험 장치 (v1.2.0 기준) · 모든 자료는 합성 — 설계서 4번
 // 1) 320·390px 5탭 가로 넘침 · JS 오류
 // 2) 카미노 저장소 불변 (같은 출처의 camino:* 키 · caminoMedia)
 // 3) 모르는 칸 보존 — 기기(저장 왕복) · 동기화 경로(docGet/docPut, plan.json) · 백업 경로(빠른 백업 → 복원)
 // 4) 동영상 29·30·31초 경계, 사진 1280/1600px, 동영상 자동 백업 기본 끄기
 // 5) 저장 이름 분리 · 날짜 축(10/31부터 열린 날짜) · 카미노 저장소 이름 거부 · 카미노 백업 거부
+// 6) v1.1 카미노 기록 가져오기: 10/31 이후만 · 바이트 일치 · 매체 복사 · 덮어쓰기 없음 · 카미노 불변 · 매체 DB 새로 만들지 않음
+// 7) v1.2 카미노 앱 토큰 이어 쓰기: 토큰은 화면에 안 보임 · camino:gh 불변 · Porto-data로 연결 시험
+// 사용: node tests/smoke-porto.js porto/index.html [porto백업.json]
 // 실제 포르투 백업 파일을 둘째 인자로 주면, 그 기록을 넣고 열기·저장 왕복 대조까지 한다.
 const { chromium } = require('playwright');
 const http = require('http'), fs = require('fs'), path = require('path'), os = require('os');
@@ -28,6 +29,7 @@ const ORIGIN = `http://127.0.0.1:${srv.address().port}`;
 const url = `${ORIGIN}/${base}`;
 
 let fails = 0;
+const uniqPaths = (h) => [...new Set(h.map(x => x[0].split('?')[0]))].join(', ');
 const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
 
 // ── 시험 자료 ──
@@ -393,6 +395,41 @@ const overflow = (pg) => pg.evaluate(() => document.documentElement.scrollWidth 
     await p6.goto(url); await p6.waitForTimeout(500); await p6.click('.tabbar button[data-t="out"]');
     ok(!(await p6.isVisible('#camImp')), '가져오기: 조회 전용 폰에는 보이지 않음');
     await ctx6.close();
+  }
+
+  // ── v1.2 카미노 앱 토큰 이어 쓰기 ──
+  {
+    const ctx7 = await br.newContext({ viewport: { width: 320, height: 800 } });
+    const p7 = await ctx7.newPage(); const e7 = []; p7.on('pageerror', e => e7.push(e.message));
+    const hits = [];
+    await p7.route('https://api.github.com/**', (rt) => { const u = rt.request().url(), a = rt.request().headers()['authorization'];
+      hits.push([u.replace('https://api.github.com', ''), a]);
+      if (/\/repos\/vNext2026\/Porto-data$/.test(u)) return rt.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ full_name: 'vNext2026/Porto-data', private: true, default_branch: 'main' }) });
+      return rt.fulfill({ status: 404, contentType: 'application/json', body: '{}' }); });
+    await p7.goto(`${ORIGIN}/blank.html`);
+    await p7.evaluate(() => { localStorage.setItem('camino:gh', JSON.stringify({ token: 'github_pat_TESTCAMINO', repo: 'vNext2026/Camino-data', appRepo: 'vNext2026/Camino', vid: true })); localStorage.setItem('porto:me', 'p2'); });
+    const g0 = await p7.evaluate(() => localStorage.getItem('camino:gh'));
+    await p7.goto(url); await p7.waitForTimeout(600); await closeModals(p7);
+    await p7.click('.tabbar button[data-t="out"]'); await p7.waitForTimeout(200);
+    ok(await p7.isVisible('#camTok'), '토큰 이어 쓰기: 카미노 토큰이 있고 포르투 토큰이 없으면 단추가 보임');
+    ok((await overflow(p7)) <= 0, '토큰 이어 쓰기: 320px 넘침 없음');
+    await p7.click('#camTok'); await p7.waitForTimeout(200); await p7.click('.mask [data-a=yes]'); await p7.waitForTimeout(800);
+    const msg = await modalText(p7); await closeModals(p7);
+    const g = await p7.evaluate(() => ({ p: JSON.parse(localStorage.getItem('porto:gh') || '{}'), c: localStorage.getItem('camino:gh'), body: document.body.innerText, type: $('#ghTok').type }));
+    ok(g.p.token === 'github_pat_TESTCAMINO' && g.p.repo === 'vNext2026/Porto-data' && g.p.appRepo === 'vNext2026/Porto', '토큰 이어 쓰기: 포르투 설정에 토큰·Porto-data·Porto 저장');
+    ok(g.p.vid !== true, '토큰 이어 쓰기: 카미노의 동영상 자동 백업 켜짐을 따라오지 않음 (기본 끄기 유지)');
+    ok(/연결했습니다/.test(msg) && /비공개/.test(msg), `토큰 이어 쓰기: 연결 시험 — ${msg.split('\n')[0]}`);
+    ok(hits.length && hits.every(h => h[1] === 'Bearer github_pat_TESTCAMINO') && hits.every(h => !/Camino/i.test(h[0])), `토큰 이어 쓰기: 요청은 Porto 저장소로만 (${uniqPaths(hits)})`);
+    ok(g.c === g0, '토큰 이어 쓰기: 카미노 설정(camino:gh) 불변');
+    ok(g.body.indexOf('TESTCAMINO') < 0 && g.type === 'password', '토큰 이어 쓰기: 토큰이 화면 글자로 보이지 않음');
+    ok(!(await p7.isVisible('#camTok')), '토큰 이어 쓰기: 연결 뒤에는 단추가 숨음');
+    ok(e7.length === 0, '토큰 이어 쓰기: JS 오류 없음' + (e7.length ? ' — ' + e7.join(' | ') : ''));
+    await ctx7.close();
+    const ctx8 = await br.newContext({ viewport: { width: 390, height: 800 } }); const p8 = await ctx8.newPage();
+    await p8.goto(`${ORIGIN}/blank.html`); await p8.evaluate(() => localStorage.setItem('porto:me', 'p2'));
+    await p8.goto(url); await p8.waitForTimeout(500); await p8.click('.tabbar button[data-t="out"]');
+    ok(!(await p8.isVisible('#camTok')), '토큰 이어 쓰기: 카미노 토큰이 없으면 단추 숨김');
+    await ctx8.close();
   }
 
   await br.close(); srv.close();
