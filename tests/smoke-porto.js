@@ -1,4 +1,4 @@
-// 포르투판 시험 장치 (v1.2.0 기준) · 모든 자료는 합성 — 설계서 4번
+// 포르투판 시험 장치 (v1.2.1 기준) · 모든 자료는 합성 — 설계서 4번
 // 1) 320·390px 5탭 가로 넘침 · JS 오류
 // 2) 카미노 저장소 불변 (같은 출처의 camino:* 키 · caminoMedia)
 // 3) 모르는 칸 보존 — 기기(저장 왕복) · 동기화 경로(docGet/docPut, plan.json) · 백업 경로(빠른 백업 → 복원)
@@ -6,6 +6,7 @@
 // 5) 저장 이름 분리 · 날짜 축(10/31부터 열린 날짜) · 카미노 저장소 이름 거부 · 카미노 백업 거부
 // 6) v1.1 카미노 기록 가져오기: 10/31 이후만 · 바이트 일치 · 매체 복사 · 덮어쓰기 없음 · 카미노 불변 · 매체 DB 새로 만들지 않음
 // 7) v1.2 카미노 앱 토큰 이어 쓰기: 토큰은 화면에 안 보임 · camino:gh 불변 · Porto-data로 연결 시험
+// 8) v1.2.1 날짜 바뀜: 탭 복귀·자정 넘김 때 날짜 목록 늘리고 오늘로 · 작성 중이면 옮기지 않음 · 다시 열 때 어제 화면 복원 안 함
 // 사용: node tests/smoke-porto.js porto/index.html [porto백업.json]
 // 실제 포르투 백업 파일을 둘째 인자로 주면, 그 기록을 넣고 열기·저장 왕복 대조까지 한다.
 const { chromium } = require('playwright');
@@ -430,6 +431,58 @@ const overflow = (pg) => pg.evaluate(() => document.documentElement.scrollWidth 
     await p8.goto(url); await p8.waitForTimeout(500); await p8.click('.tabbar button[data-t="out"]');
     ok(!(await p8.isVisible('#camTok')), '토큰 이어 쓰기: 카미노 토큰이 없으면 단추 숨김');
     await ctx8.close();
+  }
+
+  // ── v1.2.1 날짜 바뀜 ──
+  {
+    const T0 = new Date('2026-11-03T10:00:00').getTime();
+    const mk = async (w) => { const c = await br.newContext({ viewport: { width: w, height: 800 } }); const p = await c.newPage(); const e = []; p.on('pageerror', x => e.push(x.message));
+      await p.clock.install({ time: T0 }); await p.goto(`${ORIGIN}/blank.html`);
+      await p.evaluate(() => { localStorage.setItem('porto:me', 'p2'); localStorage.setItem('porto:d:p2:2026-11-02', JSON.stringify({ note: '11/2 기록', items: [] })); });
+      await p.goto(url); await p.waitForTimeout(500); await closeModals(p); return { c, p, e }; };
+    const vis = (p) => p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    const st = (p) => p.evaluate(() => ({ cur: IT[idx][0], last: DAYS[DAYS.length - 1], n: DAYS.length, N: N, lab: $('#dlabel').textContent, pick: $('#pick').options.length, dirty: dirty }));
+
+    // A: 9일 동안 새로고침 없이 → 탭 복귀
+    let { c, p, e } = await mk(320);
+    let a = await st(p);
+    ok(a.cur === '2026-11-03' && a.last === '2026-11-10', `날짜 바뀜: 시작 상태 오늘 11/03 · 목록 끝 ${a.last}`);
+    await p.clock.setSystemTime(new Date('2026-11-12T08:00:00').getTime()); await vis(p); await p.waitForTimeout(200);
+    a = await st(p);
+    ok(a.cur === '2026-11-12' && a.last === '2026-11-19' && a.n === a.N && a.pick === a.n && /11\/12/.test(a.lab), `날짜 바뀜(9일 뒤 탭 복귀): 오늘 ${a.cur}로 이동 · 목록 끝 ${a.last} · 고르기 ${a.pick}개`);
+    ok(await p.evaluate(() => JSON.parse(localStorage.getItem('porto:d:p2:2026-11-02')).note === '11/2 기록'), '날짜 바뀜: 지난 기록 그대로');
+    // 그 날짜에 적고 저장 → 정확히 11/12에 저장
+    await p.fill('#note', '11/12에 쓴 글'); await p.click('#doSave'); await p.waitForTimeout(200); await closeModals(p);
+    ok(await p.evaluate(() => (JSON.parse(localStorage.getItem('porto:d:p2:2026-11-12') || '{}').note === '11/12에 쓴 글') && !localStorage.getItem('porto:d:p2:2026-11-10')), '날짜 바뀜: 오늘(11/12) 날짜로 저장됨, 목록 끝 날(11/10)에 잘못 저장되지 않음');
+    // 같은 날 다른 날짜를 보다가 탭 복귀 → 그대로
+    await p.evaluate(() => show(DAYS.indexOf('2026-11-02'))); await vis(p); await p.waitForTimeout(100);
+    ok((await st(p)).cur === '2026-11-02', '날짜 바뀜: 날짜가 안 바뀌었으면 보던 날 그대로');
+    // B: 작성 중에 자정 넘김(화면 켜 둔 채) → 옮기지 않고 알림, 내용 보존
+    await p.evaluate(() => show(todayIdx())); await p.fill('#note', '자정 직전 작성 중');
+    await p.clock.setSystemTime(new Date('2026-11-12T23:59:30').getTime()); await p.clock.runFor(1000);
+    await p.clock.setSystemTime(new Date('2026-11-13T00:00:30').getTime()); await p.clock.runFor(61000); await p.waitForTimeout(200);
+    const m = await modalText(p); a = await st(p);
+    ok(a.cur === '2026-11-12' && a.dirty && (await p.inputValue('#note')) === '자정 직전 작성 중' && /11\/13/.test(m), `날짜 바뀜(작성 중 자정): 옮기지 않고 알림 · 쓰던 글 보존 — ${m.split('\n')[0]}`);
+    ok(a.last === '2026-11-20', `날짜 바뀜(작성 중 자정): 목록은 늘어남 (끝 ${a.last})`);
+    await closeModals(p); await p.click('#doSave'); await p.waitForTimeout(200); await closeModals(p);
+    ok(await p.evaluate(() => JSON.parse(localStorage.getItem('porto:d:p2:2026-11-12')).note === '자정 직전 작성 중' && !localStorage.getItem('porto:d:p2:2026-11-13')), '날짜 바뀜: 작성 중이던 글은 원래 날(11/12)에 저장');
+    // C: 작성 중 아님 + 자정(1분 확인) → 오늘로
+    await p.clock.setSystemTime(new Date('2026-11-14T00:00:30').getTime()); await p.clock.runFor(61000); await p.waitForTimeout(200);
+    ok((await st(p)).cur === '2026-11-14', '날짜 바뀜(화면 켜 둔 채 자정): 1분 안에 오늘(11/14)로');
+    ok(e.length === 0, '날짜 바뀜: JS 오류 없음' + (e.length ? ' — ' + e.join(' | ') : ''));
+    await c.close();
+    // D: 어제 저녁 화면 상태가 남은 채 아침에 다시 열기 → 오늘로
+    ({ c, p, e } = await mk(390));
+    await p.evaluate(() => show(DAYS.indexOf('2026-11-02')));
+    await p.evaluate(() => uiSave());
+    await p.clock.setSystemTime(new Date('2026-11-04T06:00:00').getTime());
+    await p.reload(); await p.waitForTimeout(500); await closeModals(p);
+    ok((await st(p)).cur === '2026-11-04', '다시 열기: 날짜가 바뀌었으면 어제 보던 날 대신 오늘로');
+    await p.evaluate(() => show(DAYS.indexOf('2026-11-02'))); await p.evaluate(() => uiSave());
+    await p.clock.setSystemTime(new Date('2026-11-04T07:00:00').getTime()); await p.reload(); await p.waitForTimeout(500); await closeModals(p);
+    ok((await st(p)).cur === '2026-11-02', '다시 열기: 같은 날 안에서는 보던 날 복원 (기존 동작 유지)');
+    ok(e.length === 0, '다시 열기: JS 오류 없음' + (e.length ? ' — ' + e.join(' | ') : ''));
+    await c.close();
   }
 
   await br.close(); srv.close();

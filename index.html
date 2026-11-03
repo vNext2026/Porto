@@ -529,7 +529,7 @@ function validDay(d){return /^\d{4}-\d{2}-\d{2}$/.test(d||"")&&d>=DAY0}
 var IT=[];
 /* 날짜 행: [날짜, "N일째", (빈 칸 — 옛 구간 자리)…] */
 function rebuildIT(){IT=DAYS.map(function(ds,i){return [ds,(i+1)+"일째","","",0,"—","",null]})}
-var APPVER="1.2.0", APPDATE="2026-11-03";
+var APPVER="1.2.1", APPDATE="2026-11-03";
 var OWN={p1:"Damiano",p2:"Dominica"}, me=null, owner="p1", formBase="null";
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
 function lsSet(k,v){try{localStorage.setItem(k,v);return true}catch(e){return false}}
@@ -1729,7 +1729,7 @@ var drT=null,curTab="log",NEWVER=null;
 function draftSave(){if(!dirty||!IT[idx])return;
  try{lsSet("porto:draft",JSON.stringify({o:owner,d:IT[idx][0],at:Date.now(),v:collect(),base:formBase}))}catch(e){}}
 function clearDraft(){clearTimeout(drT);lsDel("porto:draft")}
-function uiSave(){if(!IT[idx])return;lsSet("porto:ui",JSON.stringify({t:curTab,d:IT[idx][0],o:owner,y:window.scrollY||0,at:Date.now()}))}
+function uiSave(){if(!IT[idx])return;lsSet("porto:ui",JSON.stringify({t:curTab,d:IT[idx][0],o:owner,y:window.scrollY||0,at:Date.now(),td:DAYNOW}))}
 document.addEventListener("visibilitychange",function(){
  if(document.visibilityState==="hidden"){draftSave();uiSave()}
  else{syncSoon(800);checkVersion()}});
@@ -2341,6 +2341,29 @@ $("#camTok").onclick=function(){
   $("#ghSave").onclick();
  })};
 
+
+/* ════════ v1.2.1 — 날짜가 바뀌면 날짜 목록을 늘리고 오늘로 ════════
+   앱을 다시 볼 때(탭 복귀)와 화면을 켜 둔 채 자정을 넘길 때(1분마다 확인) 실행.
+   · 목록 끝이 오늘+7일보다 앞이면 늘린다 (날짜 키는 그대로, 뒤에 붙이기만).
+   · 날짜가 바뀌었으면: 쓰던 내용이 없으면 오늘로 옮기고, 있으면 옮기지 않고 알린다 (다른 날에 저장되지 않게). */
+var DAYNOW=ymdOf(new Date());
+function dayTick(){
+ if(!IT.length||!IT[idx])return;
+ var t=ymdOf(new Date()),need=ymdOf(new Date(Date.now()+7*864e5)),grew=false;
+ if(DAYS[DAYS.length-1]<need){var d=new Date(DAYS[DAYS.length-1]+"T12:00");
+  while(DAYS[DAYS.length-1]<need&&DAYS.length<4000){d.setDate(d.getDate()+1);DAYS.push(ymdOf(d))}
+  N=DAYS.length;rebuildIT();grew=true}
+ if(t===DAYNOW){if(grew){refillPick();if(!dirty)loadOwner()}return}
+ DAYNOW=t;
+ if(dirty){if(grew)refillPick();
+  ui.alert("날짜가 "+md(t)+" ("+wd(t)+")로 바뀌었습니다.\n\n지금 화면은 "+md(IT[idx][0])+" ("+wd(IT[idx][0])+") 기록입니다. 쓰던 내용을 저장한 뒤 날짜를 오늘로 옮기십시오.");return}
+ loadOwner();refillPick();show(todayIdx());
+ if(curTab==="stat")paintStat();if(curTab==="out")render();
+}
+document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")dayTick()});
+window.addEventListener("pageshow",function(){dayTick()});
+setInterval(function(){if(document.visibilityState==="visible")dayTick()},60000);
+
 /* ── 저장소 보존 · 오프라인 실행 ── */
 try{
  if(navigator.storage&&navigator.storage.persist){
@@ -2372,7 +2395,7 @@ boot().then(loadAll).then(function(){
  refillPick();
  var dr=lsJ("porto:draft",null),u=lsJ("porto:ui",null),start=todayIdx(),tab="log",y=0;
  var drOk=!RO&&dr&&dr.v&&DAYS.indexOf(dr.d)>=0&&OWN[dr.o];
- if(u&&Date.now()-u.at<6*3600e3){
+ if(u&&Date.now()-u.at<6*3600e3&&(u.td||ymdOf(new Date(u.at)))===ymdOf(new Date())){
   if(OWN[u.o])owner=u.o;
   var k=DAYS.indexOf(u.d);if(k>=0)start=k;tab=u.t||"log";y=u.y||0;
  }
