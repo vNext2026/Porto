@@ -477,6 +477,11 @@ body.ro input:disabled,body.ro select:disabled,body.ro textarea:disabled{opacity
     <textarea id="out" readonly></textarea>
     <div class="acts"><button class="primary" id="copy">복사</button><button id="share">공유</button></div>
   </section>
+  <section class="rohide"><h2>카미노 앱에서 가져오기</h2><div class="card">
+    <div class="setst" id="camSt">—</div>
+    <div class="acts" style="margin:0"><button id="camImp">10/31 이후 기록 가져오기</button></div>
+    <p class="hint">이 폰의 카미노 기록앱에 적은 10/31 이후 기록(글·지출·정산·사진·영수증)을 이 앱으로 복사합니다. 카미노 앱의 기록은 읽기만 하고 그대로 둡니다. 이 앱에 이미 있는 날은 건너뜁니다.</p>
+  </div></section>
   <section><h2>복원</h2><div class="card">
     <p class="hint" style="margin:0 0 10px"><b style="color:var(--moss)">전체 백업 파일</b>을 고르면 사진·영수증까지 전부 되살아납니다. 조각이 여러 개면 <b>모두 한꺼번에</b> 고르십시오.<br>
     아래 칸은 <b style="color:var(--shell)">텍스트 백업</b>용 — 글·수치·설명만 복원됩니다.</p>
@@ -523,7 +528,7 @@ function validDay(d){return /^\d{4}-\d{2}-\d{2}$/.test(d||"")&&d>=DAY0}
 var IT=[];
 /* 날짜 행: [날짜, "N일째", (빈 칸 — 옛 구간 자리)…] */
 function rebuildIT(){IT=DAYS.map(function(ds,i){return [ds,(i+1)+"일째","","",0,"—","",null]})}
-var APPVER="1.0.0", APPDATE="2026-11-03";
+var APPVER="1.1.0", APPDATE="2026-11-03";
 var OWN={p1:"Damiano",p2:"Dominica"}, me=null, owner="p1", formBase="null";
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
 function lsSet(k,v){try{localStorage.setItem(k,v);return true}catch(e){return false}}
@@ -1767,7 +1772,7 @@ function paintSettings(){
   "\n마지막 성공: "+(SY.last?new Date(SY.last).toLocaleString("ko-KR"):"없음")+
   "\n미전송 기록: "+outbox().length+"건 · GitHub의 사진·영상: "+nm+"개"+(sk?" · 올리지 않은 큰 영상 "+sk+"개":"")+
   "\n저장소 보존 요청: "+PERSIST+" · 오프라인 실행: "+SWST;
- $("#appst").textContent="현재 앱 v"+APPVER+" ("+APPDATE+")"+(NEWVER?" · 새 버전 v"+NEWVER+" 있음":"");paintRoSel();
+ $("#appst").textContent="현재 앱 v"+APPVER+" ("+APPDATE+")"+(NEWVER?" · 새 버전 v"+NEWVER+" 있음":"");paintRoSel();paintCam();
 }
 $("#meSel").addEventListener("click",function(e){var b=e.target.closest("button[data-o]");if(!b||b.dataset.o===me)return;
  ui.confirm("이 폰의 주인을 「"+OWN[b.dataset.o]+"」(으)로 바꿀까요?\n기록은 옮겨지지 않고, 처음 열 때 보이는 기록만 바뀝니다.","바꾸기","그만두기")
@@ -2254,6 +2259,70 @@ $("#oRange").onclick=function(e){var b=e.target.closest("button[data-r]");if(!b)
   OUTSEL=sel;PENDTAG=outTag();try{f.call(this,e)}finally{OUTSEL=null}};
 });
 paintOutRange();
+
+
+/* ════════ v1.1 — 카미노 기록앱에서 10/31 이후 기록 가져오기 ════════
+   같은 주소(github.io)라 카미노 앱의 저장소가 이 폰에 함께 있다. 읽기만 하고, 복사본을 porto 저장소에 넣는다.
+   · 기록: camino:d:p1|p2:YYYY-MM-DD (YYYY-MM-DD ≥ 2026-10-31) → 같은 내용 그대로 + imp 칸(가져온 표시)
+     km·시각·컨디션 등 이 앱이 쓰지 않는 칸도 지우지 않고 보존한다.
+   · 사진·동영상·영수증: IndexedDB caminoMedia → portoMedia (같은 id). 카미노 DB가 없으면 만들지 않는다.
+   · 이 앱에 이미 있는 날은 건너뛴다 (덮어쓰지 않음). 몇 번 눌러도 결과가 같다. */
+var CAMFROM="2026-10-31";
+function camKeys(){var a=[];try{for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i)||"",m=/^camino:d:(p[12]):(\d{4}-\d{2}-\d{2})$/.exec(k);
+ if(m&&m[2]>=CAMFROM)a.push({k:k,o:m[1],d:m[2]})}}catch(e){}
+ return a.sort(function(x,y){return x.d<y.d?-1:x.d>y.d?1:(x.o<y.o?-1:1)})}
+function camPlan(){var add=[],skip=[];camKeys().forEach(function(x){var v=pj(lsGet(x.k));if(!v||typeof v!=="object"||!Object.keys(v).length)return;
+ x.v=v;(lsGet(dayKey(x.o,x.d))?skip:add).push(x)});return {add:add,skip:skip}}
+function camIdb(){return new Promise(function(res){ // 카미노 매체 DB를 읽기 전용으로 연다 — 없으면 만들지 않는다
+ var q;if(!window.indexedDB)return res(null);
+ try{q=indexedDB.open("caminoMedia")}catch(e){return res(null)}
+ q.onupgradeneeded=function(){try{q.transaction.abort()}catch(e){}};
+ q.onsuccess=function(){var db=q.result;if(!db.objectStoreNames.contains("m")){db.close();return res(null)}res(db)};
+ q.onerror=function(){res(null)};q.onblocked=function(){res(null)}})}
+function camGet(db,id){return new Promise(function(res){try{var r=db.transaction("m","readonly").objectStore("m").get(id);
+ r.onsuccess=function(){res(r.result||null)};r.onerror=function(){res(null)}}catch(e){res(null)}})}
+function camIds(o){var L=[];(o.media||[]).forEach(function(m){if(m&&m.id)L.push(m.id);if(m&&m.pid)L.push(m.pid)});
+ (o.items||[]).forEach(function(it){(it.rcs||(it.rc?[it.rc]:[])).forEach(function(r){if(r&&r.id)L.push(r.id)})});return L}
+function camList(xs){var g={};xs.forEach(function(x){(g[x.o]=g[x.o]||[]).push(md(x.d))});
+ return Object.keys(g).sort().map(function(o){return OWN[o]+" "+g[o].length+"일 ("+g[o].join(", ")+")"}).join("\n")}
+function paintCam(){var el=$("#camSt");if(!el)return;var P=camPlan();
+ el.textContent=!P.add.length&&!P.skip.length?"이 폰의 카미노 앱에는 10/31 이후 기록이 없습니다."
+  :(P.add.length?"가져올 기록: "+camList(P.add):"새로 가져올 기록이 없습니다.")+(P.skip.length?"\n이미 있어 건너뛸 날: "+camList(P.skip):"")}
+$("#camImp").onclick=function(){
+ if(RO)return;
+ if(dirty){ui.alert("저장하지 않은 변경이 있습니다.\n「기록」 탭에서 먼저 저장하거나 되돌린 뒤 가져오십시오.");return}
+ var P=camPlan();
+ if(!P.add.length){ui.alert(P.skip.length?"새로 가져올 기록이 없습니다.\n10/31 이후 날짜는 모두 이 앱에 이미 있습니다.":"이 폰의 카미노 앱에는 10/31 이후 기록이 없습니다.");return}
+ ui.confirm("카미노 앱의 기록을 이 앱으로 복사합니다.\n\n"+camList(P.add)+(P.skip.length?"\n\n이미 있어 건너뜀: "+camList(P.skip):"")+
+  "\n\n카미노 앱의 기록은 그대로 남습니다.","가져오기","그만두기").then(function(ok){
+  if(!ok)return;
+  var b=$("#camImp"),LBL=b.textContent;b.disabled=true;b.textContent="사진 옮기는 중…";
+  var ids=[],seen={};P.add.forEach(function(x){camIds(x.v).forEach(function(id){if(!seen[id]){seen[id]=1;ids.push(id)}})});
+  var got=0,had=0,miss=[],n=0,full=false,at=new Date().toISOString();
+  camIdb().then(function(db){
+   var chain=Promise.resolve();
+   ids.forEach(function(id,i){chain=chain.then(function(){b.textContent="사진 옮기는 중 "+(i+1)+"/"+ids.length;return mgetLocal(id)}).then(function(mine){
+    if(mine){had++;return}
+    return (db?camGet(db,id):Promise.resolve(null)).then(function(bl){if(!bl){miss.push(id);return}return mput(id,bl).then(function(){got++})})})});
+   return chain.then(function(){if(db)db.close()});
+  }).then(function(){ // 매체를 먼저 옮긴 뒤 기록을 넣는다 — 중간에 멈춰도 사진 없는 기록이 생기지 않게
+   P.add.forEach(function(x){if(full)return;
+    var o=JSON.parse(JSON.stringify(x.v));o.imp={from:"camino",at:at};
+    if(lsSet(dayKey(x.o,x.d),JSON.stringify(o))){n++;syncMark(pathOf(x.o,x.d))}else full=true});
+   var cc=lsJ("camino:cfg",null),cf=[];
+   if(cc&&typeof cc==="object"){
+    if(!has(CFG.rate)&&has(cc.rate)){CFG.rate=String(cc.rate);cf.push("환율 "+cc.rate)}
+    if(!(CFG.pm&&CFG.pm.length)&&cc.pm&&cc.pm.length){CFG.pm=cc.pm.slice();cf.push("결제 수단 "+cc.pm.join(", "))}
+    if(cf.length)saveCfg()}
+   b.disabled=false;b.textContent=LBL;
+   loadOwner();show(idx);paintCam();
+   ui.alert("가져왔습니다.\n\n기록 "+n+"일 · 사진·영수증 "+got+"개 새로 복사"+(had?" ("+had+"개는 이미 있음)":"")+
+    (miss.length?"\n\n⚠ 이 폰에 없는 사진·영수증 "+miss.length+"개 — 카미노 앱에서 그 사람 기록을 연 적이 없는 폰입니다. 기록을 쓴 사람의 폰에서도 한 번 가져오십시오.":"")+
+    (full?"\n\n⚠ 기기 저장 공간이 가득 차 일부 날을 넣지 못했습니다.":"")+
+    (cf.length?"\n\n비어 있던 설정을 카미노 앱 값으로 채웠습니다: "+cf.join(" · "):"")+
+    "\n\n시작 현금·트래블카드 잔고는 「기획」에서 확인하십시오. 카미노 앱의 기록은 그대로 남아 있습니다.");
+  }).catch(function(e){b.disabled=false;b.textContent=LBL;ui.alert("가져오지 못했습니다.\n"+((e&&e.name)||""))});
+ })};
 
 /* ── 저장소 보존 · 오프라인 실행 ── */
 try{

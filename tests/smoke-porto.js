@@ -1,4 +1,5 @@
-// 포르투판 시험 장치 (v1.0.0 기준) · 모든 자료는 합성 — 설계서 4번
+// 포르투판 시험 장치 (v1.1.0 기준) · 모든 자료는 합성
+// 6) v1.1 카미노 기록 가져오기: 10/31 이후만 · 바이트 일치 · 매체 복사 · 덮어쓰기 없음 · 카미노 불변 · 매체 DB 새로 만들지 않음 — 설계서 4번
 // 사용: node tests/smoke-porto.js porto/index.html [porto백업.json]
 // 1) 320·390px 5탭 가로 넘침 · JS 오류
 // 2) 카미노 저장소 불변 (같은 출처의 camino:* 키 · caminoMedia)
@@ -299,6 +300,100 @@ const overflow = (pg) => pg.evaluate(() => document.documentElement.scrollWidth 
   ok(await p3.evaluate(() => $('#note').disabled && $('#sched').disabled && $('#health').disabled), '조회 전용: 한 줄·일정·건강 칸 잠김');
   ok(e3.length === 0, '조회 전용 JS 오류 없음' + (e3.length ? ' — ' + e3.join(' | ') : ''));
   await ctx3.close();
+
+  // ── v1.1 카미노 기록 가져오기 ──
+  {
+    const camRec = {
+      '2026-10-30': { p2: { note: '10/30 — 가져오면 안 됨', items: [] } },
+      '2026-10-31': { p2: { km: '0', note: '시험 이동일 [사진 1]', st: 'jump', a1: '3', b2: '4', zzCam: { keep: 1 },
+        items: [{ c: '교통', a: '40', u: 'EUR', pm: '트래블카드', iid: 'i1', rcs: [{ id: 'r1', sz: 3 }] }, { c: '식비', a: '9000', u: 'KRW', iid: 'i2' }],
+        media: [{ id: 'm1', t: 'image', sz: 3, cap: '사진' }, { id: 'm2', t: 'video', sz: 4, dur: 12, pid: 'm2_p' }], cash: { start: '120', actual: '80' } } },
+      '2026-11-01': { p1: { note: 'Damiano 11/1', media: [{ id: 'mX', t: 'image', sz: 3 }], items: [] },
+                      p2: { note: '카미노에 적은 11/1 (포르투에 이미 있음)', items: [] } },
+    };
+    const seedCam = async (pg, withDb) => pg.evaluate(([recs, withDb]) => new Promise((res) => {
+      for (const d of Object.keys(recs)) for (const o of Object.keys(recs[d])) localStorage.setItem(`camino:d:${o}:${d}`, JSON.stringify(recs[d][o]));
+      localStorage.setItem('camino:cfg', JSON.stringify({ rate: '1650', pm: ['현금', '트래블카드', '신용카드'] }));
+      localStorage.setItem('porto:me', 'p2');
+      localStorage.setItem('porto:d:p2:2026-11-01', JSON.stringify({ note: '포르투에서 먼저 쓴 11/1', kind: 'base' }));
+      if (!withDb) return res();
+      const q = indexedDB.open('caminoMedia', 1);
+      q.onupgradeneeded = () => q.result.createObjectStore('m');
+      q.onsuccess = () => { const tx = q.result.transaction('m', 'readwrite'), st = tx.objectStore('m');
+        st.put(new Blob(['img1'], { type: 'image/jpeg' }), 'm1'); st.put(new Blob(['vid22'], { type: 'video/mp4' }), 'm2');
+        st.put(new Blob(['pst'], { type: 'image/jpeg' }), 'm2_p'); st.put(new Blob(['rc1'], { type: 'image/jpeg' }), 'r1');
+        tx.oncomplete = () => { q.result.close(); res(); }; };
+    }), [camRec, withDb]);
+
+    const ctx4 = await br.newContext({ viewport: { width: 320, height: 800 } });
+    const p4 = await ctx4.newPage(); const e4 = [];
+    p4.on('pageerror', e => e4.push(e.message));
+    await p4.goto(`${ORIGIN}/blank.html`); await seedCam(p4, true);
+    const cLS0 = Object.fromEntries(Object.entries(await snapLS(p4)).filter(([k]) => k.startsWith('camino:')));
+    const cDB0 = await idbDump(p4, 'caminoMedia');
+    await p4.goto(url); await p4.waitForTimeout(700); await closeModals(p4);
+    await p4.click('.tabbar button[data-t="out"]'); await p4.waitForTimeout(200);
+    const st0 = await p4.textContent('#camSt');
+    ok(/Damiano 1일 \(11\/01\)/.test(st0) && /Dominica 1일 \(10\/31\)/.test(st0) && /건너뛸 날: Dominica 1일 \(11\/01\)/.test(st0) && !/10\/30/.test(st0), `가져오기: 미리보기 — ${st0.replace(/\n/g, ' / ')}`);
+    ok((await overflow(p4)) <= 0, '가져오기: 320px 내보내기 탭 넘침 없음');
+    await p4.click('#camImp'); await p4.waitForTimeout(200);
+    await p4.click('.mask [data-a=yes]'); await p4.waitForTimeout(1500);
+    const msg = await modalText(p4); await closeModals(p4);
+    ok(/기록 2일/.test(msg) && /4개 새로 복사/.test(msg) && /없는 사진·영수증 1개/.test(msg), `가져오기: 결과 안내 — ${msg.split('\n').filter(Boolean).slice(0, 3).join(' / ')}`);
+    const r = await p4.evaluate(() => ({ a: localStorage.getItem('porto:d:p2:2026-10-31'), b: localStorage.getItem('porto:d:p1:2026-11-01'),
+      keep: localStorage.getItem('porto:d:p2:2026-11-01'), no: localStorage.getItem('porto:d:p2:2026-10-30'), out: JSON.parse(localStorage.getItem('porto:out') || '[]'), cfg: JSON.parse(localStorage.getItem('porto:cfg') || '{}') }));
+    const strip = (s) => { const o = JSON.parse(s); delete o.imp; return JSON.stringify(o); };
+    ok(r.a && strip(r.a) === JSON.stringify(camRec['2026-10-31'].p2) && JSON.parse(r.a).imp.from === 'camino', '가져오기: 10/31 기록이 카미노와 한 글자도 다르지 않음 (km·컨디션·모르는 칸 포함) + imp 표시');
+    ok(r.b && strip(r.b) === JSON.stringify(camRec['2026-11-01'].p1), '가져오기: Damiano 11/1 기록');
+    ok(JSON.parse(r.keep).note === '포르투에서 먼저 쓴 11/1' && !JSON.parse(r.keep).imp, '가져오기: 포르투에 이미 있던 날은 덮어쓰지 않음');
+    ok(r.no === null, '가져오기: 10/30 이전은 가져오지 않음');
+    ok(r.out.indexOf('data/p2/2026-10-31.json') >= 0 && r.out.indexOf('data/p1/2026-11-01.json') >= 0, '가져오기: 가져온 날은 GitHub 올릴 목록에 들어감');
+    ok(r.cfg.rate === '1650' && r.cfg.pm.length === 3, '가져오기: 비어 있던 환율·결제 수단을 카미노 값으로 채움');
+    const pDB = await idbDump(p4, 'portoMedia');
+    ok(['m1', 'm2', 'm2_p', 'r1'].every(k => pDB[k] && pDB[k] === cDB0[k]), '가져오기: 사진·동영상·표지·영수증이 portoMedia로 그대로 복사됨');
+    const cLS1 = Object.fromEntries(Object.entries(await snapLS(p4)).filter(([k]) => k.startsWith('camino:')));
+    const cDiff = Object.keys({ ...cLS0, ...cLS1 }).filter(k => cLS0[k] !== cLS1[k]);
+    ok(cDiff.length === 0, `가져오기: 카미노 localStorage 불변 (${Object.keys(cLS0).length}개, 키별 비교)` + (cDiff.length ? ' 바뀐 키: ' + cDiff.join(', ') : ''));
+    ok(JSON.stringify(cDB0) === JSON.stringify(await idbDump(p4, 'caminoMedia')), '가져오기: 카미노 caminoMedia 불변');
+    // 화면: 10/31을 열면 글·지출·사진이 보이고, 저장해도 카미노 칸이 남는다
+    await p4.click('.tabbar button[data-t="log"]');
+    await p4.evaluate(() => show(DAYS.indexOf('2026-10-31'))); await p4.waitForTimeout(500);
+    const vis = await p4.evaluate(() => ({ note: $('#note').value, items: $$('#items .item').length, media: $$('#media .mth img').length }));
+    ok(vis.note === '시험 이동일 [사진 1]' && vis.items === 2 && vis.media === 2, `가져오기: 10/31 화면에 글·지출 ${vis.items}건·사진 ${vis.media}장`);
+    await p4.click('#kchips button[data-k="trip"]'); await p4.click('#doSave'); await p4.waitForTimeout(300); await closeModals(p4);
+    const sv = JSON.parse(await p4.evaluate(() => localStorage.getItem('porto:d:p2:2026-10-31')));
+    ok(sv.kind === 'trip' && sv.km === '0' && sv.a1 === '3' && sv.b2 === '4' && sv.zzCam.keep === 1 && sv.imp && sv.items[0].rcs[0].id === 'r1', '가져오기: 가져온 날을 고쳐 저장해도 카미노 칸·영수증 보존');
+    // 다시 눌러도 바뀌는 것 없음
+    const before2 = await snapLS(p4);
+    await p4.click('.tabbar button[data-t="out"]'); await p4.click('#camImp'); await p4.waitForTimeout(300);
+    const m2 = await modalText(p4); await closeModals(p4);
+    const after2 = await snapLS(p4);
+    ok(/새로 가져올 기록이 없습니다/.test(m2) && Object.keys(before2).every(k => k === 'porto:ui' || before2[k] === after2[k]), '가져오기: 두 번째 누르면 아무것도 바꾸지 않음');
+    ok(e4.length === 0, '가져오기: JS 오류 없음' + (e4.length ? ' — ' + e4.join(' | ') : ''));
+    await ctx4.close();
+
+    // 카미노 매체 DB가 없는 폰: DB를 새로 만들지 않아야 한다
+    const ctx5 = await br.newContext({ viewport: { width: 390, height: 800 } });
+    const p5 = await ctx5.newPage(); const e5 = []; p5.on('pageerror', e => e5.push(e.message));
+    await p5.goto(`${ORIGIN}/blank.html`); await seedCam(p5, false);
+    await p5.goto(url); await p5.waitForTimeout(700); await closeModals(p5);
+    await p5.click('.tabbar button[data-t="out"]'); await p5.click('#camImp'); await p5.waitForTimeout(200);
+    await p5.click('.mask [data-a=yes]'); await p5.waitForTimeout(1200);
+    const m5 = await modalText(p5); await closeModals(p5);
+    const dbs = await p5.evaluate(async () => (await indexedDB.databases()).map(d => d.name));
+    ok(/기록 2일/.test(m5) && /없는 사진·영수증 5개/.test(m5), '가져오기(매체 DB 없음): 기록은 들어오고 빠진 사진 5개 안내');
+    ok(dbs.indexOf('caminoMedia') < 0, `가져오기(매체 DB 없음): caminoMedia를 새로 만들지 않음 — DB 목록 ${dbs.join(',')}`);
+    ok(e5.length === 0, '가져오기(매체 DB 없음): JS 오류 없음' + (e5.length ? ' — ' + e5.join(' | ') : ''));
+    await ctx5.close();
+
+    // 조회 전용 폰에는 가져오기 칸이 보이지 않는다
+    const ctx6 = await br.newContext({ viewport: { width: 320, height: 700 } });
+    const p6 = await ctx6.newPage();
+    await p6.goto(`${ORIGIN}/blank.html`); await p6.evaluate(() => { localStorage.setItem('porto:me', 'p1'); localStorage.setItem('porto:ro', '1'); });
+    await p6.goto(url); await p6.waitForTimeout(500); await p6.click('.tabbar button[data-t="out"]');
+    ok(!(await p6.isVisible('#camImp')), '가져오기: 조회 전용 폰에는 보이지 않음');
+    await ctx6.close();
+  }
 
   await br.close(); srv.close();
   console.log(fails ? `\n실패 ${fails}건` : '\n모두 통과');
