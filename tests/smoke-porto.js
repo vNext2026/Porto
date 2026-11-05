@@ -1,4 +1,4 @@
-// 포르투판 시험 장치 (v1.2.1 기준) · 모든 자료는 합성 — 설계서 4번
+// 포르투판 시험 장치 (v1.3.0 기준) · 모든 자료는 합성 — 설계서 4번
 // 1) 320·390px 5탭 가로 넘침 · JS 오류
 // 2) 카미노 저장소 불변 (같은 출처의 camino:* 키 · caminoMedia)
 // 3) 모르는 칸 보존 — 기기(저장 왕복) · 동기화 경로(docGet/docPut, plan.json) · 백업 경로(빠른 백업 → 복원)
@@ -6,6 +6,7 @@
 // 5) 저장 이름 분리 · 날짜 축(10/31부터 열린 날짜) · 카미노 저장소 이름 거부 · 카미노 백업 거부
 // 6) v1.1 카미노 기록 가져오기: 10/31 이후만 · 바이트 일치 · 매체 복사 · 덮어쓰기 없음 · 카미노 불변 · 매체 DB 새로 만들지 않음
 // 7) v1.2 카미노 앱 토큰 이어 쓰기: 토큰은 화면에 안 보임 · camino:gh 불변 · Porto-data로 연결 시험
+// 9) v1.3.0 지출 유형 「주거비」: 고르기·세부 내역·집계·유형별 예산 · 기존 유형 보존
 // 8) v1.2.1 날짜 바뀜: 탭 복귀·자정 넘김 때 날짜 목록 늘리고 오늘로 · 작성 중이면 옮기지 않음 · 다시 열 때 어제 화면 복원 안 함
 // 사용: node tests/smoke-porto.js porto/index.html [porto백업.json]
 // 실제 포르투 백업 파일을 둘째 인자로 주면, 그 기록을 넣고 열기·저장 왕복 대조까지 한다.
@@ -60,7 +61,7 @@ const PORTO_DAY = {
   kind: 'base', sched: '오전 연구실 · 오후 장보기', note: '포르투 둘째 날. '.repeat(250) + 'https://example.com/아주아주긴주소_' + 'x'.repeat(120),
   items: [
     { c: '식비', a: '12.5', u: 'EUR', m: 'Bolhão 시장', pm: '현금', iid: 'iA', zzItem: 'keep-item' },
-    { c: '주거비', a: '800', u: 'EUR', iid: 'iB' },
+    { c: '반려동물', a: '800', u: 'EUR', iid: 'iB' },
     { c: '교통', a: '150', u: 'NOK', iid: 'iC' },
     { c: '기타', a: '20000', u: 'KRW', iid: 'iD' },
   ],
@@ -181,7 +182,7 @@ const overflow = (pg) => pg.evaluate(() => document.documentElement.scrollWidth 
       ok(o.ha === '두통 조금', `${w}px 저장: 다른 사람 건강 칸 보존`);
       ok(o.zzFuture && o.zzFuture.keep === 'me' && o.km === '12.3' && o.a1 === '3' && o.st === 'more', `${w}px 저장: 모르는 칸(zzFuture·km·a1·st) 보존`);
       ok(o.items[0].zzItem === 'keep-item', `${w}px 저장: 지출 항목의 모르는 칸 보존`);
-      ok(o.items[1].c === '주거비', `${w}px 저장: 목록에 없는 지출 유형 보존 (${o.items[1].c})`);
+      ok(o.items[1].c === '반려동물', `${w}px 저장: 목록에 없는 지출 유형 보존 (${o.items[1].c})`);
       ok(o.items[2].u === 'NOK' && o.items[3].u === 'KRW', `${w}px 저장: 통화 NOK·KRW 보존`);
       const tot = await pg.evaluate(() => eurOf(cache['2026-11-01']));
       ok(Math.abs(tot - (12.5 + 800 + 150 / 11.6 + 20000 / 1600)) < 1e-6, `${w}px € 환산 (NOK=11.6, ₩1600) = ${tot.toFixed(2)}`);
@@ -483,6 +484,43 @@ const overflow = (pg) => pg.evaluate(() => document.documentElement.scrollWidth 
     ok((await st(p)).cur === '2026-11-02', '다시 열기: 같은 날 안에서는 보던 날 복원 (기존 동작 유지)');
     ok(e.length === 0, '다시 열기: JS 오류 없음' + (e.length ? ' — ' + e.join(' | ') : ''));
     await c.close();
+  }
+
+  // ── v1.3.0 주거비 ──
+  {
+    const c9 = await br.newContext({ viewport: { width: 320, height: 800 } }); const p9 = await c9.newPage(); const e9 = []; p9.on('pageerror', x => e9.push(x.message));
+    await p9.goto(`${ORIGIN}/blank.html`);
+    await p9.evaluate(() => { localStorage.setItem('porto:me', 'p2');
+      localStorage.setItem('porto:d:p2:2026-11-01', JSON.stringify({ note: '전에 기타로 적은 월세', items: [{ c: '기타', a: '800', u: 'EUR', m: '11월 월세', iid: 'iOld' }] })); });
+    await p9.goto(url); await p9.waitForTimeout(500); await closeModals(p9);
+    const opts = await p9.evaluate(() => { $('#additem').click(); const it = $$('#items .item'); const sel = it[it.length - 1].querySelector('select'); return [...sel.options].map(o => o.value); });
+    ok(opts[0] === '주거비' && opts.indexOf('숙박') > 0 && opts.length === 10, `주거비: 지출 유형 목록 맨 앞 — ${opts.join(', ')}`);
+    await p9.evaluate(() => { const it = $$('#items .item'), el = it[it.length - 1]; el.querySelector('select').value = '주거비'; el.querySelector('.memo').value = '12월 관리비·공과금'; });
+    await p9.evaluate(() => { const it = $$('#items .item'), el = it[it.length - 1]; el.querySelector('.adddet').click(); el.querySelector('.adddet').click(); });
+    await p9.evaluate(() => { const el = $$('#items .item').slice(-1)[0], d = el.querySelectorAll('.det');
+      d[0].querySelector('.dn').value = '전기'; d[0].querySelector('.da').value = '42'; d[1].querySelector('.dn').value = '수도'; d[1].querySelector('.da').value = '18';
+      d[1].querySelector('.da').dispatchEvent(new Event('input', { bubbles: true })); });
+    await p9.click('#doSave'); await p9.waitForTimeout(200); await closeModals(p9);
+    const o = await p9.evaluate(() => JSON.parse(localStorage.getItem(dayKey('p2', IT[idx][0]))));
+    const h = o.items.find(x => x.c === '주거비');
+    ok(h && h.a === '60' && h.d.length === 2 && h.m === '12월 관리비·공과금', `주거비: 세부 내역 합 ${h && h.a} (전기 42 + 수도 18) 저장`);
+    await p9.evaluate(() => show(DAYS.indexOf('2026-11-01'))); await p9.waitForTimeout(200);
+    ok(await p9.evaluate(() => $$('#items .item select')[0].value === '기타' && JSON.parse(localStorage.getItem('porto:d:p2:2026-11-01')).items[0].c === '기타'), '주거비: 기존 기록의 유형(기타)은 그대로');
+    await p9.evaluate(() => { const s = $$('#items .item select')[0]; s.value = '주거비'; s.dispatchEvent(new Event('input', { bubbles: true })); });
+    await p9.click('#doSave'); await p9.waitForTimeout(200); await closeModals(p9);
+    const o2 = JSON.parse(await p9.evaluate(() => localStorage.getItem('porto:d:p2:2026-11-01')));
+    ok(o2.items[0].c === '주거비' && o2.items[0].iid === 'iOld' && o2.items[0].a === '800' && o2.items[0].m === '11월 월세', '주거비: 기존 항목을 주거비로 바꿔도 금액·메모·id 보존');
+    await p9.click('.tabbar button[data-t="stat"]'); await p9.waitForTimeout(250);
+    const st = await p9.evaluate(() => ({ cost: $('#t-cost').innerText, catb: $('#t-catb').innerText }));
+    ok(/주거비\s*€860\.00/.test(st.cost) && /주거비/.test(st.catb), `주거비: 현황 지출 내역·유형별 표에 나옴 (${(st.cost.match(/주거비[^\n]*/) || [''])[0]})`);
+    ok((await overflow(p9)) <= 0, '주거비: 320px 현황 넘침 없음');
+    await p9.click('.tabbar button[data-t="plan"]'); await p9.waitForTimeout(250);
+    ok(await p9.evaluate(() => !!document.querySelector('#pCats input[data-c="주거비"]')), '주거비: 기획 탭 유형별 1일 예산 칸');
+    ok((await overflow(p9)) <= 0, '주거비: 320px 기획 넘침 없음');
+    await p9.click('.tabbar button[data-t="log"]'); await p9.waitForTimeout(150);
+    ok((await overflow(p9)) <= 0, '주거비: 320px 기록 넘침 없음');
+    ok(e9.length === 0, '주거비: JS 오류 없음' + (e9.length ? ' — ' + e9.join(' | ') : ''));
+    await c9.close();
   }
 
   await br.close(); srv.close();

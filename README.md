@@ -2,7 +2,7 @@
 
 iPhone(Edge 고정 탭)에서 쓰는 1년 생활 일지·가계부 웹앱. 단일 HTML, GitHub Pages로 연다.
 
-- 앱: `index.html` — v1.2.1 (2026-11-03) · 같은 폰의 카미노 기록앱에서 10/31 이후 기록·GitHub 연결 이어받기 포함
+- 앱: `index.html` — v1.3.0 (2026-11-05) · 같은 폰의 카미노 기록앱에서 10/31 이후 기록·GitHub 연결 이어받기 포함
 - 시험 장치: `tests/smoke-porto.js` (Playwright, 모든 자료는 합성)
 
 ## 저장

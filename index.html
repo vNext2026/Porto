@@ -312,6 +312,7 @@ body.ro input:disabled,body.ro select:disabled,body.ro textarea:disabled{opacity
   <section><h2>지출 · 2인 합산</h2><div class="card">
     <div id="items"></div>
     <button class="additem" id="additem">＋ 지출 항목 추가</button>
+    <p class="hint" style="margin:8px 0 0">주거비 = 월세·관리비·공과금 · 숙박 = 원정·출장 숙소. 세부는 「＋ 세부 내역」에 (예: 전기 42 · 수도 18).</p>
     <div class="sum"><span>오늘 합계</span><b id="total">€0.00</b></div>
     <div class="budget" id="bud"></div>
   </div></section>
@@ -529,7 +530,7 @@ function validDay(d){return /^\d{4}-\d{2}-\d{2}$/.test(d||"")&&d>=DAY0}
 var IT=[];
 /* 날짜 행: [날짜, "N일째", (빈 칸 — 옛 구간 자리)…] */
 function rebuildIT(){IT=DAYS.map(function(ds,i){return [ds,(i+1)+"일째","","",0,"—","",null]})}
-var APPVER="1.2.1", APPDATE="2026-11-03";
+var APPVER="1.3.0", APPDATE="2026-11-05";
 var OWN={p1:"Damiano",p2:"Dominica"}, me=null, owner="p1", formBase="null";
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
 function lsSet(k,v){try{localStorage.setItem(k,v);return true}catch(e){return false}}
@@ -539,7 +540,8 @@ function dayKey(o,d){return "porto:d:"+o+":"+d}
 var N=DAYS.length, RATE=1740, PRE="porto:", NOTEMAX=10000, PXMAX=(lsGet("porto:px")==="1600"?1600:1280), PXQ=0.80,
     VIDMAX=250*1024*1024, VIDSEC=30, POSTERPX=560;
 var CFG=lsJ("porto:cfg",{});  // v6: 예산·초기값·환율·결제 수단·갈림길 (plan.json의 cfg로 동기화)
-var CATS=["숙박","식비","짐 이송","교통","봉헌·헌금","약국·의료","세탁","통신","기타"];
+var CATS=["주거비","숙박","식비","짐 이송","교통","봉헌·헌금","약국·의료","세탁","통신","기타"];
+/* 주거비 = 포르투 집의 월세·관리비·공과금(전기·가스·수도·인터넷) · 숙박 = 원정·출장 때 숙소 (v1.3.0) */
 /* 오늘 구분 (설계서 1-1) — 저장 칸 kind */
 var KIND=[["base","거점"],["trip","원정"],["biz","출장"]];
 var KNOTE={base:"거점 — 포르투 일상",trip:"원정 — 여행으로 거점 밖에서 지낸 날",biz:"출장 — 공적 일정 (지출은 구분별로 따로 집계됩니다)"};
